@@ -1,0 +1,51 @@
+name: Daily private delivery
+on:
+  schedule:
+    - cron: '30 16 * * *'
+    - cron: '0 17 * * *'
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Optional preview date (YYYY-MM-DD); blank selects today'
+        type: string
+        required: false
+        default: ''
+      dry_run:
+        description: 'Validate only; make no network requests'
+        type: boolean
+        required: true
+        default: true
+permissions:
+  contents: write
+concurrency:
+  group: private-daily-delivery
+  cancel-in-progress: false
+jobs:
+  deliver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Behavioral tests
+        run: python3 -m unittest discover -s . -p 'test_*.py'
+      - name: Deliver or validate
+        env:
+          QUEUE_JSON: ${{ secrets.QUEUE_JSON }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PREVIEW_DATE: ${{ inputs.date }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            args+=(--preview)
+            if [[ -n "$PREVIEW_DATE" ]]; then args+=(--date "$PREVIEW_DATE"); fi
+            if [[ "$DRY_RUN" != "false" ]]; then args+=(--dry-run); fi
+          fi
+          python3 dispatch.py "${args[@]}"
